@@ -23,6 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'wf1 = py_wall_follower.wall_follower_v1:main',
+            'wf2 = py_wall_follower.wall_follower_v2:main',
             'see_marker = py_wall_follower.see_marker:main',
             'point_transformer = py_wall_follower.point_transformer:main',
         ],

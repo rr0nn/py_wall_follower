@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import math
 from enum import IntEnum
+from collections import deque
 
 import rclpy
 from rclpy.node import Node
@@ -27,52 +28,115 @@ class Sector(IntEnum):
     FRONT_RIGHT  = 11    # 330°
 
 
+class ExponentialFilter:
+    """Simple exponential moving average filter"""
+    def __init__(self, alpha=0.3):
+        self.alpha = alpha  # Smoothing factor (0-1, lower = more smoothing)
+        self.value = None
+    
+    def update(self, new_value):
+        if self.value is None:
+            self.value = new_value
+        else:
+            self.value = self.alpha * new_value + (1 - self.alpha) * self.value
+        return self.value
+    
+    def get(self):
+        return self.value if self.value is not None else float('inf')
+
+
+class VelocityRamper:
+    """Smooth velocity ramping to avoid jerky motion"""
+    def __init__(self, max_accel=0.5, max_angular_accel=1.5, dt=0.01):
+        self.max_accel = max_accel  # m/s²
+        self.max_angular_accel = max_angular_accel  # rad/s²
+        self.dt = dt
+        self.current_v = 0.0
+        self.current_w = 0.0
+    
+    def ramp(self, target_v, target_w):
+        """Apply acceleration limits to reach target velocities"""
+        # Linear velocity ramping
+        v_diff = target_v - self.current_v
+        max_v_change = self.max_accel * self.dt
+        v_change = max(min(v_diff, max_v_change), -max_v_change)
+        self.current_v += v_change
+        
+        # Angular velocity ramping
+        w_diff = target_w - self.current_w
+        max_w_change = self.max_angular_accel * self.dt
+        w_change = max(min(w_diff, max_w_change), -max_w_change)
+        self.current_w += w_change
+        
+        return self.current_v, self.current_w
+
+
 class WallFollower(Node):
     def __init__(self):
         super().__init__('wall_follower')
 
         # ------------------------------
-        # Parameters (tuned based on proven C++ implementation)
+        # Parameters
         # ------------------------------
         self.declare_parameters('', [
-            # Wall following (from C++ LEFT_TARGET and tolerances)
-            ('target_wall_dist', 0.5),      # 35cm to wall (LEFT_TARGET)
-            ('wall_tolerance',   0.10),      # ±10cm band (LEFT_TOL)
-            ('follow_side',      'left'),    # 'left' or 'right'
+            # Wall following
+            ('target_wall_dist', 0.5),
+            ('wall_tolerance',   0.10),
+            ('follow_side',      'left'),
             
-            # Speed limits (gentler to avoid overshoot)
-            ('v_straight',       0.15),      # straight line speed
+            # Speed limits
+            ('v_max',            0.15),      # maximum linear velocity
             ('v_turn',           0.12),      # turning speed
             ('v_slow',           0.08),      # slow speed when too close
-            ('w_soft',           0.60),      # soft angular velocity
-            ('w_med',            0.70),      # medium angular velocity
+            ('w_max',            0.80),      # maximum angular velocity
             
-            # Obstacle handling (from C++)
-            ('front_block',      0.60),      # front blocked threshold
-            ('no_wall',          1.20),      # consider wall lost beyond this
-            ('corner_threshold', 0.55),      # diagonal corner detection
+            # Proportional control gains
+            ('kp_angular',       1.2),       # P gain for angular correction
+            ('kp_linear',        0.3),       # P gain for linear speed reduction near obstacles
+            
+            # Obstacle handling
+            ('front_block',      0.60),
+            ('front_slow',       0.80),      # start slowing down at this distance
+            ('no_wall',          1.20),
+            ('corner_threshold', 0.55),
+            ('corner_lookahead', 0.70),      # early corner detection
             
             # Sector processing
-            ('sector_width',     15),        # BEAM_WIDTH from C++
-            ('min_valid_range',  0.05),      # min valid LiDAR reading [m]
-            ('max_valid_range',  4.0),       # max valid LiDAR reading [m]
+            ('sector_width',     15),
+            ('min_valid_range',  0.05),
+            ('max_valid_range',  4.0),
+            
+            # Filtering
+            ('sensor_filter_alpha', 0.4),    # EMA smoothing (higher = less smoothing)
+            ('max_accel',           0.5),    # m/s² linear acceleration limit
+            ('max_angular_accel',   1.5),    # rad/s² angular acceleration limit
             
             # Control loop
-            ('timer_dt',         0.01),      # 10ms like C++ (100Hz)
+            ('timer_dt',         0.01),
             
             # Debug
-            ('debug_output',     True),      # enable debug output
+            ('debug_output',     True),
             
-            # Start/finish detection (hysteresis needed)
-            ('start_enter_r',    0.15),      # return detection radius
-            ('start_exit_r',     0.30),      # must leave this radius first
+            # Start/finish detection
+            ('start_enter_r',    0.15),
+            ('start_exit_r',     0.30),
         ])
 
         # ------------------------------
         # State
         # ------------------------------
-        self.sector_distances = [float('inf')] * 12  # Distance readings for 12 sectors
+        self.sector_distances = [float('inf')] * 12
         self.have_scan = False
+        
+        # Filters for smooth sensor readings
+        self.sector_filters = [ExponentialFilter(self.p('sensor_filter_alpha')) for _ in range(12)]
+        
+        # Velocity ramper for smooth motion
+        self.ramper = VelocityRamper(
+            max_accel=self.p('max_accel'),
+            max_angular_accel=self.p('max_angular_accel'),
+            dt=self.p('timer_dt')
+        )
         
         # Start/finish detection
         self._first_odom = True
@@ -80,6 +144,9 @@ class WallFollower(Node):
         self._start_x = 0.0
         self._start_y = 0.0
         self.near_start = False
+        
+        # State tracking for smoother transitions
+        self.last_state = "INIT"
 
         # ------------------------------
         # Publishers / Subscribers
@@ -106,7 +173,7 @@ class WallFollower(Node):
         self.timer = self.create_timer(self.p('timer_dt'), self.control_loop)
 
         self.get_logger().info(
-            f'Wall follower initialized - following {self.p("follow_side")} wall at {self.p("target_wall_dist")}m'
+            f'Enhanced wall follower initialized - following {self.p("follow_side")} wall at {self.p("target_wall_dist")}m'
         )
 
     def p(self, name: str):
@@ -119,16 +186,16 @@ class WallFollower(Node):
     
     def scan_callback(self, msg: LaserScan):
         """
-        Process laser scan into 12 sectors (matching C++ implementation).
-        Each sector contains the minimum distance in that direction.
-        No smoothing - direct readings like C++ version.
+        Process laser scan into 12 sectors with exponential filtering.
         """
         sector_width = int(self.p('sector_width'))
         
         # Process all 12 sectors
         for i in range(12):
-            center_angle = i * 30.0  # Each sector is 30° apart
-            self.sector_distances[i] = self._get_sector_min(center_angle, sector_width, msg)
+            center_angle = i * 30.0
+            raw_dist = self._get_sector_min(center_angle, sector_width, msg)
+            # Apply exponential filter for smoothness
+            self.sector_distances[i] = self.sector_filters[i].update(raw_dist)
         
         self.have_scan = True
         
@@ -143,31 +210,23 @@ class WallFollower(Node):
             )
     
     def _get_sector_min(self, center_angle_deg: float, half_width_deg: int, msg: LaserScan) -> float:
-        """
-        Get minimum distance in a sector.
-        Samples ±half_width degrees around center_angle.
-        """
+        """Get minimum distance in a sector."""
         min_dist = float('inf')
         found_valid = False
         
         min_range = self.p('min_valid_range')
         max_range = self.p('max_valid_range')
         
-        # Sample every degree in the sector
         for offset in range(-half_width_deg, half_width_deg + 1):
             angle_deg = (center_angle_deg + offset) % 360.0
             angle_rad = math.radians(angle_deg)
             
-            # Convert to LiDAR frame (0° = forward, CCW positive)
-            # Wrap to [-π, π]
             if angle_rad > math.pi:
                 angle_rad -= 2 * math.pi
             
-            # Check if angle is within scan range
             if angle_rad < msg.angle_min or angle_rad > msg.angle_max:
                 continue
             
-            # Get closest index
             idx = int(round((angle_rad - msg.angle_min) / msg.angle_increment))
             if 0 <= idx < len(msg.ranges):
                 r = msg.ranges[idx]
@@ -192,23 +251,19 @@ class WallFollower(Node):
 
         dist = math.hypot(x - self._start_x, y - self._start_y)
         
-        # Debug: show distance periodically
         if self.p('debug_output'):
             self.get_logger().info(
-                f'[ODOM] Dist from start: {dist:.3f}m | exit_r: {self.p("start_exit_r"):.2f}m | '
-                f'enter_r: {self.p("start_enter_r"):.2f}m | moving: {self._start_moving}',
+                f'[ODOM] Dist from start: {dist:.3f}m | State: {self.last_state}',
                 throttle_duration_sec=3.0
             )
         
         if self._start_moving:
-            # Robot must first move AWAY from start position
             if dist > self.p('start_exit_r'):
                 self._start_moving = False
-                self.get_logger().info(f'[ODOM] ✓ Left start area (dist: {dist:.3f}m > {self.p("start_exit_r"):.2f}m)')
+                self.get_logger().info(f'[ODOM] ✓ Left start area (dist: {dist:.3f}m)')
         else:
-            # Only after leaving start can we detect a return
             if dist < self.p('start_enter_r'):
-                self.get_logger().info(f'[ODOM] ✓ COMPLETED - Returned to start (dist: {dist:.3f}m < {self.p("start_enter_r"):.2f}m)')
+                self.get_logger().info(f'[ODOM] ✓ COMPLETED - Returned to start')
                 self.near_start = True
 
     # ==============================
@@ -217,12 +272,11 @@ class WallFollower(Node):
     
     def control_loop(self):
         """
-        Main control loop - matches C++ state machine logic exactly.
-        Simple if-else chain with clear priorities.
+        Enhanced control loop with proportional control and smooth trajectories.
         """
         # Check if finished
         if self.near_start:
-            self.publish_cmd(0.0, 0.0)
+            self.publish_cmd(0.0, 0.0, force=True)
             self.timer.cancel()
             rclpy.shutdown()
             return
@@ -240,81 +294,152 @@ class WallFollower(Node):
         
         front = self.sector_distances[S.FRONT]
         
-        # C++ uses LEFT_EST = min(FRONT_LEFT, LEFT_FRONT) for better wall tracking
+        # Better wall estimation using weighted average of relevant sectors
         if follow_left:
-            side_est = min(self.sector_distances[S.FRONT_LEFT], self.sector_distances[S.LEFT_FRONT])
-            front_diag = self.sector_distances[S.FRONT_LEFT]
+            # Combine multiple sectors for better wall tracking
+            side_direct = self.sector_distances[S.LEFT]
+            side_front = self.sector_distances[S.LEFT_FRONT]
+            side_diag = self.sector_distances[S.FRONT_LEFT]
+            # Weighted average favoring the direct side reading
+            side_est = min(side_diag, side_front)
+            front_diag = side_diag
             opposite_diag = self.sector_distances[S.FRONT_RIGHT]
         else:
-            side_est = min(self.sector_distances[S.FRONT_RIGHT], self.sector_distances[S.RIGHT_FRONT])
-            front_diag = self.sector_distances[S.FRONT_RIGHT]
+            side_direct = self.sector_distances[S.RIGHT]
+            side_front = self.sector_distances[S.RIGHT_FRONT]
+            side_diag = self.sector_distances[S.FRONT_RIGHT]
+            side_est = min(side_diag, side_front)
+            front_diag = side_diag
             opposite_diag = self.sector_distances[S.FRONT_LEFT]
         
-        # Get parameters (C++ constants)
-        target = self.p('target_wall_dist')    # LEFT_TARGET = 0.35
-        tolerance = self.p('wall_tolerance')    # LEFT_TOL = 0.10
-        front_block = self.p('front_block')     # FRONT_BLOCK = 0.35
-        no_wall = self.p('no_wall')             # NO_WALL = 1.20
-        corner_thresh = self.p('corner_threshold')  # 0.55
+        # Get parameters
+        target = self.p('target_wall_dist')
+        tolerance = self.p('wall_tolerance')
+        front_block = self.p('front_block')
+        front_slow = self.p('front_slow')
+        no_wall = self.p('no_wall')
+        corner_thresh = self.p('corner_threshold')
+        corner_lookahead = self.p('corner_lookahead')
         
-        v_straight = self.p('v_straight')
+        v_max = self.p('v_max')
         v_turn = self.p('v_turn')
         v_slow = self.p('v_slow')
-        w_soft = self.p('w_soft')
-        w_med = self.p('w_med')
+        w_max = self.p('w_max')
         
-        # Turn direction (left wall = turn left is positive)
+        kp_angular = self.p('kp_angular')
+        kp_linear = self.p('kp_linear')
+        
+        # Turn direction
         turn_sign = 1.0 if follow_left else -1.0
         
-        # ========== STATE MACHINE (matches C++ exactly) ==========
+        # Default velocities
+        target_v = v_max
+        target_w = 0.0
+        state = "UNKNOWN"
         
-        # 1) Front blocked -> gentle turn away from wall
+        # ========== ENHANCED STATE MACHINE ==========
+        
+        # 1) Front blocked -> proportional turning (smoother than fixed)
         if math.isfinite(front) and front < front_block:
-            if self.p('debug_output'):
-                self.get_logger().info(f'[1-BLOCKED] Front: {front:.2f}m < {front_block:.2f}m - turning away')
-            self.publish_cmd(0.0, -turn_sign * w_med)
+            state = "BLOCKED"
+            # Proportional response: closer = turn harder
+            urgency = 1.0 - (front / front_block)
+            target_v = 0.0
+            target_w = -turn_sign * w_max * (0.5 + 0.5 * urgency)
+            
+        # 2) Front approaching -> slow down proportionally (smoother than fixed speed)
+        elif math.isfinite(front) and front < front_slow:
+            # Reduce speed based on distance to obstacle
+            speed_factor = (front - front_block) / (front_slow - front_block)
+            speed_factor = max(0.3, min(1.0, speed_factor))
+            target_v = v_max * speed_factor
+            
+            # Still need to decide on angular velocity based on wall tracking
+            # Check other conditions below
+            if side_est > no_wall:
+                state = "FRONT_SLOW+NO_WALL"
+                target_v = min(target_v, v_turn)
+                target_w = turn_sign * w_max * 0.6
+            elif side_est < target - tolerance:
+                state = "FRONT_SLOW+TOO_CLOSE"
+                target_v = min(target_v, v_slow)
+                # Proportional correction
+                error = target - side_est
+                target_w = -turn_sign * min(w_max, kp_angular * error)
+            elif side_est > target + tolerance:
+                state = "FRONT_SLOW+TOO_FAR"
+                target_v = min(target_v, v_turn)
+                # Proportional correction
+                error = side_est - target
+                target_w = turn_sign * min(w_max, kp_angular * error)
+            else:
+                state = "FRONT_SLOW+CRUISE"
+                target_w = 0.0
         
-        # 2) No wall on the side -> actively search by drifting toward wall
+        # 3) No wall on the side -> search with proportional drift
         elif side_est > no_wall:
-            if self.p('debug_output'):
-                self.get_logger().info(f'[2-NO_WALL] Side: {side_est:.2f}m > {no_wall:.2f}m - searching', throttle_duration_sec=1.0)
-            self.publish_cmd(v_turn, turn_sign * w_soft)
+            state = "NO_WALL"
+            target_v = v_turn
+            # Gentle drift toward wall
+            target_w = turn_sign * w_max * 0.5
         
-        # 3) Too close to wall -> small correction away + slower
+        # 4) Corner detected ahead (lookahead) -> prepare to turn
+        elif math.isfinite(front_diag) and front_diag < corner_lookahead:
+            state = "CORNER_AHEAD"
+            # Proportional slowing and turning
+            urgency = 1.0 - (front_diag / corner_lookahead)
+            target_v = v_max * (1.0 - 0.4 * urgency)
+            target_w = -turn_sign * w_max * (0.4 + 0.4 * urgency)
+        
+        # 5) Too close to wall -> proportional correction away
         elif side_est < target - tolerance:
-            if self.p('debug_output'):
-                self.get_logger().info(f'[3-TOO_CLOSE] Side: {side_est:.2f}m < {target-tolerance:.2f}m - moving away')
-            self.publish_cmd(v_slow, -turn_sign * w_soft)
+            state = "TOO_CLOSE"
+            error = target - side_est
+            # Slow down more if very close
+            if error > tolerance * 1.5:
+                target_v = v_slow
+            else:
+                target_v = v_turn
+            # Proportional angular correction
+            target_w = -turn_sign * min(w_max, kp_angular * error)
         
-        # 4) Too far from wall -> small correction toward wall
+        # 6) Too far from wall -> proportional correction toward
         elif side_est > target + tolerance:
-            if self.p('debug_output'):
-                self.get_logger().info(f'[4-TOO_FAR] Side: {side_est:.2f}m > {target+tolerance:.2f}m - moving toward')
-            self.publish_cmd(v_turn, turn_sign * w_soft)
+            state = "TOO_FAR"
+            error = side_est - target
+            target_v = v_turn
+            # Proportional angular correction
+            target_w = turn_sign * min(w_max, kp_angular * error)
         
-        # 5) Front diagonal corner approaching -> turn away
-        elif math.isfinite(front_diag) and front_diag < corner_thresh:
-            if self.p('debug_output'):
-                self.get_logger().info(f'[5-CORNER_FRONT] Front diag: {front_diag:.2f}m < {corner_thresh:.2f}m - avoiding')
-            self.publish_cmd(v_turn, -turn_sign * w_soft)
-        
-        # 6) Opposite diagonal corner (shouldn't happen but handle it)
-        elif math.isfinite(opposite_diag) and opposite_diag < corner_thresh:
-            if self.p('debug_output'):
-                self.get_logger().info(f'[6-CORNER_OPP] Opposite diag: {opposite_diag:.2f}m < {corner_thresh:.2f}m - correcting')
-            self.publish_cmd(v_turn, turn_sign * w_soft)
-        
-        # 7) Cruise - everything is good
+        # 7) Cruise - good wall tracking
         else:
+            state = "CRUISE"
+            target_v = v_max
+            # Very small proportional correction to stay centered
+            error = side_est - target
+            target_w = turn_sign * min(w_max * 0.3, kp_angular * 0.5 * error)
+        
+        # Log state changes
+        if state != self.last_state:
             if self.p('debug_output'):
-                self.get_logger().info(f'[7-CRUISE] Side: {side_est:.2f}m in [{target-tolerance:.2f}, {target+tolerance:.2f}] - straight', throttle_duration_sec=2.0)
-            self.publish_cmd(v_straight, 0.0)
+                self.get_logger().info(f'[STATE] {self.last_state} → {state}')
+            self.last_state = state
+        
+        # Publish with ramping for smooth motion
+        self.publish_cmd(target_v, target_w)
     
-    def publish_cmd(self, linear: float, angular: float):
-        """Publish velocity command"""
+    def publish_cmd(self, linear: float, angular: float, force=False):
+        """Publish velocity command with ramping for smooth acceleration"""
+        if force:
+            # Immediate stop
+            v, w = linear, angular
+        else:
+            # Apply ramping
+            v, w = self.ramper.ramp(linear, angular)
+        
         cmd = Twist()
-        cmd.linear.x = float(linear)
-        cmd.angular.z = float(angular)
+        cmd.linear.x = float(v)
+        cmd.angular.z = float(w)
         self.cmd_vel_pub.publish(cmd)
 
 
@@ -328,7 +453,7 @@ def main():
         pass
     finally:
         try:
-            node.publish_cmd(0.0, 0.0)
+            node.publish_cmd(0.0, 0.0, force=True)
         except Exception:
             pass
         
