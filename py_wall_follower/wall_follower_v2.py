@@ -306,7 +306,7 @@ class WallFollower(Node):
             opposite_diag = self.sector_distances[S.FRONT_LEFT]
 
         front = self.sector_distances[S.FRONT]
-        front_est = min(front, 1.2 * side_diag, 1.2 * opposite_diag)
+        front_est = min(front, 1.2 * side_diag, 1.2 * opposite_diag) # front distance estimate
 
         # Get parameters
         target = self.p('target_wall_dist')
