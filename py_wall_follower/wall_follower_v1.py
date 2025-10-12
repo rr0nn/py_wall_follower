@@ -61,11 +61,11 @@ class WallFollower(Node):
             ('timer_dt',         0.01),      # 10ms like C++ (100Hz)
             
             # Debug
-            ('debug_output',     True),      # enable debug output
+            ('debug_output',     False),      # enable debug output
             
             # Start/finish detection (hysteresis needed)
-            ('start_enter_r',    0.15),      # return detection radius
-            ('start_exit_r',     0.30),      # must leave this radius first
+            ('start_enter_r',    0.30),      # return detection radius
+            ('start_exit_r',     0.40),      # must leave this radius first
         ])
 
         # ------------------------------
@@ -132,15 +132,15 @@ class WallFollower(Node):
         
         self.have_scan = True
         
-        if self.p('debug_output'):
-            S = Sector
-            self.get_logger().info(
-                f'[SCAN] F: {self.sector_distances[S.FRONT]:.2f} | '
-                f'FL: {self.sector_distances[S.FRONT_LEFT]:.2f} | '
-                f'LF: {self.sector_distances[S.LEFT_FRONT]:.2f} | '
-                f'L: {self.sector_distances[S.LEFT]:.2f}',
-                throttle_duration_sec=1.0
-            )
+        # if self.p('debug_output'):
+        #     S = Sector
+        #     self.get_logger().info(
+        #         f'[SCAN] F: {self.sector_distances[S.FRONT]:.2f} | '
+        #         f'FL: {self.sector_distances[S.FRONT_LEFT]:.2f} | '
+        #         f'LF: {self.sector_distances[S.LEFT_FRONT]:.2f} | '
+        #         f'L: {self.sector_distances[S.LEFT]:.2f}',
+        #         throttle_duration_sec=1.0
+        #     )
     
     def _get_sector_min(self, center_angle_deg: float, half_width_deg: int, msg: LaserScan) -> float:
         """
