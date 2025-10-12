@@ -32,38 +32,38 @@ class WallFollower(Node):
         super().__init__('wall_follower')
 
         # ------------------------------
-        # Parameters (tuned based on proven C++ implementation)
+        # Parameters
         # ------------------------------
         self.declare_parameters('', [
-            # Wall following (from C++ LEFT_TARGET and tolerances)
-            ('target_wall_dist', 0.5),      # 35cm to wall (LEFT_TARGET)
-            ('wall_tolerance',   0.10),      # ±10cm band (LEFT_TOL)
+            # Wall following
+            ('target_wall_dist', 0.5),      # cm
+            ('wall_tolerance',   0.10),      # ±cm
             ('follow_side',      'left'),    # 'left' or 'right'
             
-            # Speed limits (gentler to avoid overshoot)
+            # Speed limits
             ('v_straight',       0.15),      # straight line speed
             ('v_turn',           0.12),      # turning speed
             ('v_slow',           0.08),      # slow speed when too close
             ('w_soft',           0.60),      # soft angular velocity
             ('w_med',            0.70),      # medium angular velocity
             
-            # Obstacle handling (from C++)
+            # Obstacle handling
             ('front_block',      0.60),      # front blocked threshold
             ('no_wall',          1.20),      # consider wall lost beyond this
             ('corner_threshold', 0.55),      # diagonal corner detection
             
             # Sector processing
-            ('sector_width',     15),        # BEAM_WIDTH from C++
+            ('sector_width',     15),        # BEAM_WIDTH
             ('min_valid_range',  0.05),      # min valid LiDAR reading [m]
             ('max_valid_range',  4.0),       # max valid LiDAR reading [m]
             
             # Control loop
-            ('timer_dt',         0.01),      # 10ms like C++ (100Hz)
+            ('timer_dt',         0.01),      # 10ms
             
             # Debug
             ('debug_output',     False),      # enable debug output
             
-            # Start/finish detection (hysteresis needed)
+            # Start/finish detection
             ('start_enter_r',    0.30),      # return detection radius
             ('start_exit_r',     0.40),      # must leave this radius first
         ])
@@ -240,7 +240,7 @@ class WallFollower(Node):
         
         front = self.sector_distances[S.FRONT]
         
-        # C++ uses LEFT_EST = min(FRONT_LEFT, LEFT_FRONT) for better wall tracking
+        # LEFT_EST = min(FRONT_LEFT, LEFT_FRONT)
         if follow_left:
             side_est = min(self.sector_distances[S.FRONT_LEFT], self.sector_distances[S.LEFT_FRONT])
             front_diag = self.sector_distances[S.FRONT_LEFT]
@@ -250,7 +250,7 @@ class WallFollower(Node):
             front_diag = self.sector_distances[S.FRONT_RIGHT]
             opposite_diag = self.sector_distances[S.FRONT_LEFT]
         
-        # Get parameters (C++ constants)
+        # Get parameters
         target = self.p('target_wall_dist')    # LEFT_TARGET = 0.35
         tolerance = self.p('wall_tolerance')    # LEFT_TOL = 0.10
         front_block = self.p('front_block')     # FRONT_BLOCK = 0.35
@@ -266,7 +266,7 @@ class WallFollower(Node):
         # Turn direction (left wall = turn left is positive)
         turn_sign = 1.0 if follow_left else -1.0
         
-        # ========== STATE MACHINE (matches C++ exactly) ==========
+        # ========== STATE MACHINE ==========
         
         # 1) Front blocked -> gentle turn away from wall
         if math.isfinite(front) and front < front_block:
@@ -298,13 +298,13 @@ class WallFollower(Node):
                 self.get_logger().info(f'[5-CORNER_FRONT] Front diag: {front_diag:.2f}m < {corner_thresh:.2f}m - avoiding')
             self.publish_cmd(v_turn, -turn_sign * w_soft)
         
-        # 6) Opposite diagonal corner (shouldn't happen but handle it)
+        # 6) Opposite diagonal corner
         elif math.isfinite(opposite_diag) and opposite_diag < corner_thresh:
             if self.p('debug_output'):
                 self.get_logger().info(f'[6-CORNER_OPP] Opposite diag: {opposite_diag:.2f}m < {corner_thresh:.2f}m - correcting')
             self.publish_cmd(v_turn, turn_sign * w_soft)
         
-        # 7) Cruise - everything is good
+        # 7) Cruise when everything is good
         else:
             if self.p('debug_output'):
                 self.get_logger().info(f'[7-CRUISE] Side: {side_est:.2f}m in [{target-tolerance:.2f}, {target+tolerance:.2f}] - straight', throttle_duration_sec=2.0)
