@@ -16,7 +16,7 @@ import cv2 # OpenCV library
 from cv_bridge import CvBridge # Package to convert between ROS and OpenCV Images
 import math
 
-from sensor_msgs.msg import Image # Image is the message type
+from sensor_msgs.msg import CompressedImage # Image is the message type
 from sensor_msgs.msg import LaserScan # Laser scan message type
 from sensor_msgs.msg import CameraInfo # Need to know camera frame
 from geometry_msgs.msg import Point, PointStamped
@@ -48,8 +48,8 @@ class SeeMarker(Node):
 		# Create the subscriber. This subscriber will receive an Image
 		# from the video_frames topic. The queue size is 10 messages.
 		self.subscription = self.create_subscription(
-			Image,
-			'/camera/image_raw', 	# Change to "compressed" for real robot
+			CompressedImage,
+			'/camera/image_raw/compressed', 	# Change to "compressed" for real robot
 			self.listener_callback, 
 			10)
 		self.subscription # prevent unused variable warning
@@ -68,7 +68,7 @@ class SeeMarker(Node):
 		# self.get_logger().info('Receiving video frame')
  
 		# Convert ROS Image message to OpenCV image
-		current_frame = self.br.imgmsg_to_cv2(data, 'bgra8')
+		current_frame = self.br.compressed_imgmsg_to_cv2(data, 'bgra8')
 
 		# The following code is a simple example of colour segmentation
 		# and connected components analysis
@@ -115,8 +115,7 @@ class SeeMarker(Node):
 
 #					print(f'Camera coordinates: {x}, {y}')
 					self.point_publisher.publish(marker_at)
-#					self.get_logger().info('Published Point: x=%f, y=%f, z=%f' %
-#						(marker_at.point.x, marker_at.point.y, marker_at.point.z))
+					self.get_logger().info('Published Point: x=%f, y=%f, z=%f' % (marker_at.point.x, marker_at.point.y, marker_at.point.z))
 
 
 		# Display camera image
@@ -125,10 +124,10 @@ class SeeMarker(Node):
 
 
 colours = {
-	"pink":	 	((140,0,0), (170, 255, 255)),
-	"blue":		((100,0,0), (130, 255, 255)),
-	"green":	((40,0,0), (80, 255, 255)),
-	"yellow":	((25,0,0), (32, 255, 255))
+	"pink":	 	((320 / 2, 255 * 0.6, 255 * 0.6), (355 / 2, 255, 255)),
+	"blue":		((185 / 2,255 * 0.6, 255 * 0.35), (211 / 2, 255, 255)),
+	"green":	((160 / 2, 255 * 0.4 ,255 * 0.2), (185 / 2, 255, 255)),
+	"yellow":	((32 / 2, 255 * 0.5 , 255 * 0.5), (53 / 2, 255, 255))
 }
 
 
@@ -148,7 +147,7 @@ def segment(current_frame, hsv_frame, colour):
 	blobs = cv2.connectedComponentsWithStats(mask, 4, cv2.CV_32S)
 
 	# Display masked image
-#	cv2.imshow("result", result)
+	cv2.imshow("result", result)
  
 	# Print statistics for each blob (connected component)
 	return get_stats(blobs, colour)
@@ -176,7 +175,7 @@ def get_stats(blobs, colour):
 		h = stats[i, cv2.CC_STAT_HEIGHT]
 		area = stats[i, cv2.CC_STAT_AREA]
 		(cx, cy) = centroids[i]
-#		print(colour, x, y, w, h, area, cx, cy)
+		# print(colour, x, y, w, h, area, cx, cy)
 
 		if area > largest:
 			largest = area

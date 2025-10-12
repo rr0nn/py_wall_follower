@@ -59,7 +59,7 @@ class PointTransformer(Node):
 		map_point = tf2_geometry_msgs.do_transform_point(msg, transform)
 
 		# Print the transformed point in the map frame
-#		self.get_logger().info(f'Mapped {m} marker to /map frame: x={map_point.point.x}, y={map_point.point.y}, z={map_point.point.z}')
+		self.get_logger().info(f'Mapped {m} marker to /map frame: x={map_point.point.x}, y={map_point.point.y}, z={map_point.point.z}')
 
 		self.marker_position[which_marker].update_position(map_point.point)
 		self.marker_publisher_.publish(self.marker_array)
