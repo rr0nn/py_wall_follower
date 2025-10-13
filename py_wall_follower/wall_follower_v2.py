@@ -81,22 +81,22 @@ class WallFollower(Node):
         self.declare_parameters('', [
             # Wall following
             ('target_wall_dist', 0.30),      # target wall following distance
-            ('wall_tolerance',   0.10),
-            ('robot_radius',     0.16),        # distance correction for robot radius (waffle pi dimension: 281mm x 306mm x 141mm)
+            ('wall_tolerance',   0.05),
+            ('robot_radius',     0.16),      # 16cm distance correction for robot radius (waffle pi dimension: 281mm x 306mm x 141mm)
             ('follow_side',      'left'),    # follow left or right wall
             
             # Speed limits
-            ('v_max',            0.20),      # maximum linear velocity
+            ('v_max',            0.30),      # maximum linear velocity
             ('w_max',            0.70),      # maximum angular velocity
             
             # Proportional control gains
-            ('kp_angular',       0.8),       # P gain for angular correction
+            ('kp_angular',       0.9),       # P gain for angular correction
             ('kp_linear',        1.0),       # P gain for linear speed reduction near obstacles
             
             # Obstacle handling
             ('front_block',      0.60),
             ('no_wall',          1.00),
-            ('corner_threshold', 0.40),      # front corner threshold
+            ('corner_threshold', 0.55),      # front corner threshold
             
             # Sector processing
             ('sector_width',     30),        # Half width
@@ -302,17 +302,21 @@ class WallFollower(Node):
         
         # Wall distance estimation - using min() for forward-looking detection
         if follow_left:
-            # side_direct = self.sector_distances[S.LEFT]
+            side_direct = self.sector_distances[S.LEFT]
             side_front = self.sector_distances[S.LEFT_FRONT]
+            opp_front = self.sector_distances[S.RIGHT_FRONT]
             front_side = self.sector_distances[S.FRONT_LEFT]
             front_opp = self.sector_distances[S.FRONT_RIGHT]
         else:
-            # side_direct = self.sector_distances[S.RIGHT]
+            side_direct = self.sector_distances[S.RIGHT]
             side_front = self.sector_distances[S.RIGHT_FRONT]
+            opp_front = self.sector_distances[S.LEFT_FRONT]
             front_side = self.sector_distances[S.FRONT_RIGHT]
             front_opp = self.sector_distances[S.FRONT_LEFT]
 
+        side_direct -= robot_radius
         side_front -= robot_radius
+        opp_front -= robot_radius
         front_side -= robot_radius
         front_opp -= robot_radius
         side_est = min(front_side, side_front) # Use minimum for early corner/obstacle detection
@@ -326,9 +330,10 @@ class WallFollower(Node):
                 f'FS: {front_side:.2f} | '
                 f'FO: {front_opp:.2f} | '
                 f'SF: {side_front:.2f} | '
+                f'OF: {opp_front:.2f} | '
                 f'front_est: {front_est:.2f} | '
                 f'side_est: {side_est:.2f}',
-                throttle_duration_sec=1.0
+                throttle_duration_sec=1
             )
         
         # Turn direction
@@ -339,17 +344,24 @@ class WallFollower(Node):
         target_w = 0.0
         state = "UNKNOWN"
         
-        # ========== STATE MACHINE ==========
+        # ========== CONTROL ==========
 
-        # 1) Front blocked -> proportional turning away
-        if (math.isfinite(front_est) and (front_est < front_block or
-            ((self.last_state == "BLOCKED") and 2.0 * front_side < front_block))):
+        # Velocity Control
+        if math.isfinite(front_est):
+            target_v = v_max * min(1, max(0, (front_est - target + tolerance) / front_block) * kp_linear) # Front closer to wall, slower the robot
+
+        # Turning Control
+
+        # 1) Front blocked -> turning away
+        if front_est < front_block and side_est < front_block:  # side needs to be blocked too
             state = "BLOCKED"
+            target_v = 0.0
             target_w = -turn_sign * w_max # * min(1, 1 - (front / front_block))
         
-        # 2) No wall on the side -> search with proportional drift
+        # 2) No wall on the side -> large w_max for u-turn
         elif side_est > no_wall:
             state = "NO_WALL"
+            target_v = target_v * 0.5
             target_w = turn_sign * w_max
         
         # 3) Too close to wall -> proportional correction away
@@ -365,22 +377,18 @@ class WallFollower(Node):
             if self.last_state == "NO_WALL":
                 target_w = turn_sign * w_max
             else:
-                target_w = turn_sign * min(w_max, 2.0 * error)
+                target_w = turn_sign * min(w_max, kp_angular * 1.5 * error)
 
         # 5) Corner detected ahead  -> prepare to turn
-        elif math.isfinite(front_side) and front_side < corner_threshold: # and front < corner_threshold
+        elif max(front_side, front_est) < corner_threshold:
             state = "CORNER_AHEAD"
-            target_w = -turn_sign * w_max * 0.1
+            target_w = -turn_sign * w_max * 0.5
         
         # 7) Cruise - safe distance from wall
         else:
             state = "CRUISE"
             error = side_est - target
             target_w = turn_sign * min(w_max * 0.3, kp_angular * 0.5 * error) # Very small proportional correction to stay centered
-
-
-        if math.isfinite(front_est):
-            target_v = v_max * min(1, max(0, (front_est - target + tolerance) / front_block) * kp_linear) # Front closer to wall, slower the robot
 
         # DEBUG
         # if self.p('debug_output'): self.get_logger().info(f'[VW] v: {target_v}, w: {target_w}', throttle_duration_sec=1.0)
