@@ -81,27 +81,26 @@ class WallFollower(Node):
         self.declare_parameters('', [
             # Wall following
             ('target_wall_dist', 0.30),      # target wall following distance
-            ('wall_tolerance',   0.05),
+            ('wall_tolerance',   0.10),
             ('robot_radius',     0.16),      # 16cm distance correction for robot radius (waffle pi dimension: 281mm x 306mm x 141mm)
             ('follow_side',      'left'),    # follow left or right wall
             
             # Speed limits
-            ('v_max',            0.30),      # maximum linear velocity
-            ('w_max',            0.70),      # maximum angular velocity
+            ('v_max',            0.22),      # maximum linear velocity
+            ('w_max',            1.10),      # maximum angular velocity
             
             # Proportional control gains
-            ('kp_angular',       0.9),       # P gain for angular correction
+            ('kp_angular',       0.6),       # P gain for angular correction
             ('kp_linear',        1.0),       # P gain for linear speed reduction near obstacles
             
             # Obstacle handling
-            ('front_block',      0.60),
-            ('no_wall',          1.00),
-            ('corner_threshold', 0.55),      # front corner threshold
+            ('slowdown_dist',    0.50),      # for proportional slowing
+            ('front_block',      0.45),      # block detection
+            ('no_wall',          0.50),      # no wall for u-turn
+            ('corner_threshold', 0.35),      # for preparing a corner
             
-            # Sector processing
-            ('sector_width',     30),        # Half width
-            ('min_valid_range',  0.05),
-            ('max_valid_range',  4.0),
+            # Scan processing
+            ('sector_width',     30),          
             
             # Filtering
             ('sensor_filter_alpha', 0.8),    # EMA smoothing (higher = less smoothing)
@@ -115,8 +114,8 @@ class WallFollower(Node):
             ('debug_output',     True),
             
             # Start/finish detection
-            ('start_enter_r',    0.30),
-            ('start_exit_r',     0.40),
+            ('start_enter_r',    0.40),
+            ('start_exit_r',     0.50),
         ])
 
         # ------------------------------
@@ -195,42 +194,27 @@ class WallFollower(Node):
         
         self.have_scan = True
         
+        # DEBUG
         # if self.p('debug_output'):
         #     S = Sector
         #     self.get_logger().info(
-        #         f'[SCAN] F: {self.sector_distances[S.FRONT]:.2f} | '
-        #         f'FL: {self.sector_distances[S.FRONT_LEFT]:.2f} | '
-        #         f'LF: {self.sector_distances[S.LEFT_FRONT]:.2f} | '
-        #         f'L: {self.sector_distances[S.LEFT]:.2f}',
+        #         f'max: {msg.range_max:.2f} | '
+        #         f'RIGHT: {self.sector_distances[S.RIGHT]:.2f}',
         #         throttle_duration_sec=1.0
         #     )
     
     def _get_sector_min(self, center_angle_deg: float, half_width_deg: int, msg: LaserScan) -> float:
         """Get minimum distance in a sector."""
-        min_dist = float('inf')
-        found_valid = False
+        min_dist = msg.range_max # actual value 3.5
         
-        min_range = self.p('min_valid_range')
-        max_range = self.p('max_valid_range')
+        for offset in range(-half_width_deg, half_width_deg + 1): # -15 to 15 degrees
+            angle_deg = int((center_angle_deg + offset) % 360.0)  # normalize to positive value
+            
+            if 0 <= angle_deg < len(msg.ranges): # make sure it is within range of < 360
+                r = msg.ranges[angle_deg]
+                min_dist = min(min_dist, r)
         
-        for offset in range(-half_width_deg, half_width_deg + 1):
-            angle_deg = (center_angle_deg + offset) % 360.0
-            angle_rad = math.radians(angle_deg)
-            
-            if angle_rad > math.pi:
-                angle_rad -= 2 * math.pi
-            
-            if angle_rad < msg.angle_min or angle_rad > msg.angle_max:
-                continue
-            
-            idx = int(round((angle_rad - msg.angle_min) / msg.angle_increment))
-            if 0 <= idx < len(msg.ranges):
-                r = msg.ranges[idx]
-                if min_range < r < max_range:
-                    found_valid = True
-                    min_dist = min(min_dist, r)
-        
-        return min_dist if found_valid else msg.range_max if msg.range_max > 0 else float('inf')
+        return min_dist
 
     def odom_callback(self, msg: Odometry):
         """Track position for start/finish detection with hysteresis"""
@@ -271,6 +255,7 @@ class WallFollower(Node):
         target = self.p('target_wall_dist')
         tolerance = self.p('wall_tolerance')
         robot_radius = self.p('robot_radius')
+        slowdown_dist = self.p('slowdown_dist')
         front_block = self.p('front_block')
         no_wall = self.p('no_wall')
         corner_threshold = self.p('corner_threshold')
@@ -303,18 +288,22 @@ class WallFollower(Node):
         # Wall distance estimation - using min() for forward-looking detection
         if follow_left:
             side_direct = self.sector_distances[S.LEFT]
+            opp_direct = self.sector_distances[S.RIGHT]
             side_front = self.sector_distances[S.LEFT_FRONT]
             opp_front = self.sector_distances[S.RIGHT_FRONT]
             front_side = self.sector_distances[S.FRONT_LEFT]
             front_opp = self.sector_distances[S.FRONT_RIGHT]
         else:
             side_direct = self.sector_distances[S.RIGHT]
+            opp_direct = self.sector_distances[S.LEFT]
             side_front = self.sector_distances[S.RIGHT_FRONT]
             opp_front = self.sector_distances[S.LEFT_FRONT]
             front_side = self.sector_distances[S.FRONT_RIGHT]
             front_opp = self.sector_distances[S.FRONT_LEFT]
 
+        # Correct for robot radius
         side_direct -= robot_radius
+        opp_direct -= robot_radius
         side_front -= robot_radius
         opp_front -= robot_radius
         front_side -= robot_radius
@@ -322,17 +311,10 @@ class WallFollower(Node):
         side_est = min(front_side, side_front) # Use minimum for early corner/obstacle detection
 
         front = self.sector_distances[S.FRONT] - robot_radius
-        front_est = min(front, front_opp) # front distance estimate
 
         if self.p('debug_output'):
             self.get_logger().info(
-                f'F: {front:.2f} | '
-                f'FS: {front_side:.2f} | '
-                f'FO: {front_opp:.2f} | '
-                f'SF: {side_front:.2f} | '
-                f'OF: {opp_front:.2f} | '
-                f'front_est: {front_est:.2f} | '
-                f'side_est: {side_est:.2f}',
+                f'{side_direct:.2f} {side_front:.2f} {front_side:.2f}|{front:.2f}|{front_opp:.2f} {opp_front:.2f} {opp_direct:.2f} ',
                 throttle_duration_sec=1
             )
         
@@ -347,23 +329,36 @@ class WallFollower(Node):
         # ========== CONTROL ==========
 
         # Velocity Control
-        if math.isfinite(front_est):
-            target_v = v_max * min(1, max(0, (front_est - target + tolerance) / front_block) * kp_linear) # Front closer to wall, slower the robot
+        if front < slowdown_dist:
+            target_v = round(v_max * min(1, max(0, (front - target + tolerance) /slowdown_dist) * kp_linear), 2) # Front closer to wall, slower the robot
 
         # Turning Control
-
-        # 1) Front blocked -> turning away
-        if front_est < front_block and side_est < front_block:  # side needs to be blocked too
+        # 1a) Keep Turning Until Not Blocked
+        if self.last_state == "BLOCKED" and min(front, front_side) < front_block:
+            #self.get_logger().info('1a', throttle_duration_sec=1)
             state = "BLOCKED"
             target_v = 0.0
-            target_w = -turn_sign * w_max # * min(1, 1 - (front / front_block))
+            target_w = -turn_sign * w_max * 0.6 # * min(1, 1 - (front / front_block))
+
+        # 1b) Front blocked -> turning away
+        elif front < front_block and max(side_direct, front_side) < front_block + 0.3:  # side needs to be blocked too
+            #self.get_logger().info('1b', throttle_duration_sec=1)
+            state = "BLOCKED"
+            target_v = 0.0
+            target_w = -turn_sign * w_max * 0.6 # * min(1, 1 - (front / front_block))
         
-        # 2) No wall on the side -> large w_max for u-turn
-        elif side_est > no_wall:
+        # 2a) No wall on the side -> large w_max for u-turn
+        elif self.last_state == "NO_WALL" and front_side > no_wall: # Using front_side
             state = "NO_WALL"
-            target_v = target_v * 0.5
-            target_w = turn_sign * w_max
-        
+            target_v = 0.19
+            target_w = turn_sign * 0.5
+
+        # 2b) No wall on the side -> large w_max for u-turn
+        elif side_front > no_wall:
+            state = "NO_WALL"
+            target_v = 0.19
+            target_w = turn_sign * 0.5
+
         # 3) Too close to wall -> proportional correction away
         elif side_est < target - tolerance:
             state = "TOO_CLOSE"
@@ -377,21 +372,20 @@ class WallFollower(Node):
             if self.last_state == "NO_WALL":
                 target_w = turn_sign * w_max
             else:
-                target_w = turn_sign * min(w_max, kp_angular * 1.5 * error)
+                target_w = turn_sign * min(w_max, kp_angular * error)
 
         # 5) Corner detected ahead  -> prepare to turn
-        elif max(front_side, front_est) < corner_threshold:
+        elif max(front_side, front) < corner_threshold:
             state = "CORNER_AHEAD"
             target_w = -turn_sign * w_max * 0.5
         
         # 7) Cruise - safe distance from wall
         else:
             state = "CRUISE"
-            error = side_est - target
-            target_w = turn_sign * min(w_max * 0.3, kp_angular * 0.5 * error) # Very small proportional correction to stay centered
+            target_w = turn_sign * 0.02 # rad/s Very small correction to stay centered
 
         # DEBUG
-        # if self.p('debug_output'): self.get_logger().info(f'[VW] v: {target_v}, w: {target_w}', throttle_duration_sec=1.0)
+        # if self.p('debug_output'): self.get_logger().info(f'[VW] v: {target_v}, w: {target_w}', throttle_duration_sec=1)
         
         # Log state changes
         if state != self.last_state:
