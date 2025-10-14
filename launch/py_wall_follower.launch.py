@@ -5,8 +5,8 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='py_wall_follower',
-            executable='wf1',
-            name='wf1'
+            executable='wf2',
+            name='wf2'
         ),
         Node(
             package='py_wall_follower',
