@@ -4,7 +4,7 @@ from enum import IntEnum
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, QoSHistoryPolicy, QoSReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos import QoSProfile, qos_profile_sensor_data
 
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
@@ -134,7 +134,7 @@ class WallFollower(Node):
             
             if 0 <= angle_deg < len(msg.ranges): # make sure it is within range of < 360
                 r = msg.ranges[angle_deg]
-                if r > 0:
+                if r > 0: # make sure sensor returning valid value
                     min_dist = min(min_dist, r)
                 min_dist = min(min_dist, r)
 
