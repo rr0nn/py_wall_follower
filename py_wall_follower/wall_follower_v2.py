@@ -87,7 +87,7 @@ class WallFollower(Node):
             
             # Speed limits
             ('v_max',            0.22),      # maximum linear velocity
-            ('w_max',            1.10),      # maximum angular velocity
+            ('w_max',            0.80),      # rad/s maximum angular velocity
             
             # Proportional control gains
             ('kp_angular',       0.6),       # P gain for angular correction
@@ -95,20 +95,20 @@ class WallFollower(Node):
             
             # Obstacle handling
             ('slowdown_dist',    0.50),      # for proportional slowing
-            ('front_block',      0.45),      # block detection
+            ('front_block',      0.40),      # block detection
             ('no_wall',          0.50),      # no wall for u-turn
             ('corner_threshold', 0.35),      # for preparing a corner
             
             # Scan processing
-            ('sector_width',     30),          
+            ('sector_width',     30),        # sector width, can change to smaller if do not want full 30 degree range
             
             # Filtering
             ('sensor_filter_alpha', 0.8),    # EMA smoothing (higher = less smoothing)
             ('max_accel',           0.5),    # m/s² linear acceleration limit
-            ('max_angular_accel',   1.5),    # rad/s² angular acceleration limit
+            ('max_angular_accel',   1.0),    # rad/s² angular acceleration limit
             
             # Control loop
-            ('timer_dt',         0.01),
+            ('timer_dt',         0.01),      # 100Hz
             
             # Debug
             ('debug_output',     True),
@@ -147,11 +147,7 @@ class WallFollower(Node):
         # ------------------------------
         # Publishers / Subscribers
         # ------------------------------
-        qos = QoSProfile(
-            depth=10,
-            reliability=QoSReliabilityPolicy.RELIABLE,
-            history=QoSHistoryPolicy.KEEP_LAST,
-        )
+        qos = QoSProfile(depth=10)
         
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', qos)
         
@@ -195,13 +191,13 @@ class WallFollower(Node):
         self.have_scan = True
         
         # DEBUG
-        # if self.p('debug_output'):
-        #     S = Sector
-        #     self.get_logger().info(
-        #         f'max: {msg.range_max:.2f} | '
-        #         f'RIGHT: {self.sector_distances[S.RIGHT]:.2f}',
-        #         throttle_duration_sec=1.0
-        #     )
+        if self.p('debug_output'):
+            S = Sector
+            self.get_logger().info(
+                f'max: {msg.range_max:.2f} | '
+                f'{self.sector_distances[S.FRONT]:.2f}',
+                throttle_duration_sec=1.0
+            )
     
     def _get_sector_min(self, center_angle_deg: float, half_width_deg: int, msg: LaserScan) -> float:
         """Get minimum distance in a sector."""
@@ -212,7 +208,8 @@ class WallFollower(Node):
             
             if 0 <= angle_deg < len(msg.ranges): # make sure it is within range of < 360
                 r = msg.ranges[angle_deg]
-                min_dist = min(min_dist, r)
+                if r > 0:
+                    min_dist = min(min_dist, r)
         
         return min_dist
 
@@ -338,26 +335,26 @@ class WallFollower(Node):
             #self.get_logger().info('1a', throttle_duration_sec=1)
             state = "BLOCKED"
             target_v = 0.0
-            target_w = -turn_sign * w_max * 0.6 # * min(1, 1 - (front / front_block))
+            target_w = -turn_sign * 0.5 # * min(1, 1 - (front / front_block))
 
         # 1b) Front blocked -> turning away
         elif front < front_block and max(side_direct, front_side) < front_block + 0.3:  # side needs to be blocked too
             #self.get_logger().info('1b', throttle_duration_sec=1)
             state = "BLOCKED"
             target_v = 0.0
-            target_w = -turn_sign * w_max * 0.6 # * min(1, 1 - (front / front_block))
+            target_w = -turn_sign * 0.5 # * min(1, 1 - (front / front_block))
         
         # 2a) No wall on the side -> large w_max for u-turn
         elif self.last_state == "NO_WALL" and front_side > no_wall: # Using front_side
             state = "NO_WALL"
             target_v = 0.19
-            target_w = turn_sign * 0.5
+            target_w = turn_sign * 0.55
 
         # 2b) No wall on the side -> large w_max for u-turn
         elif side_front > no_wall:
             state = "NO_WALL"
             target_v = 0.19
-            target_w = turn_sign * 0.5
+            target_w = turn_sign * 0.55
 
         # 3) Too close to wall -> proportional correction away
         elif side_est < target - tolerance:
