@@ -86,11 +86,7 @@ class WallFollower(Node):
         # ------------------------------
         # Publishers / Subscribers
         # ------------------------------
-        qos = QoSProfile(
-            depth=10,
-            reliability=QoSReliabilityPolicy.RELIABLE,
-            history=QoSHistoryPolicy.KEEP_LAST,
-        )
+        qos = QoSProfile(depth=10)
 
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', qos)
 
@@ -130,31 +126,17 @@ class WallFollower(Node):
         self.have_scan = True
 
     def _get_sector_min(self, center_angle_deg: float, half_width_deg: int, msg: LaserScan) -> float:
-        """Get minimum distance in a sector (±half_width around center_angle)."""
-        min_dist = float('inf')
-        found_valid = False
-
-        min_range = self.p('min_valid_range')
-        max_range = self.p('max_valid_range')
-
-        for offset in range(-half_width_deg, half_width_deg + 1):
-            angle_deg = (center_angle_deg + offset) % 360.0
-            angle_rad = math.radians(angle_deg)
-
-            if angle_rad > math.pi:
-                angle_rad -= 2 * math.pi
-
-            if angle_rad < msg.angle_min or angle_rad > msg.angle_max:
-                continue
-
-            idx = int(round((angle_rad - msg.angle_min) / msg.angle_increment))
-            if 0 <= idx < len(msg.ranges):
-                r = msg.ranges[idx]
-                if min_range < r < max_range:
-                    found_valid = True
+        """Get minimum distance in a sector."""
+        min_dist = msg.range_max # actual value 3.5
+        
+        for offset in range(-half_width_deg, half_width_deg + 1): # -15 to 15 degrees
+            angle_deg = int((center_angle_deg + offset) % 360.0)  # normalize to positive value
+            
+            if 0 <= angle_deg < len(msg.ranges): # make sure it is within range of < 360
+                r = msg.ranges[angle_deg]
+                if r > 0:
                     min_dist = min(min_dist, r)
-
-        return min_dist if found_valid else msg.range_max if msg.range_max > 0 else float('inf')
+                min_dist = min(min_dist, r)
 
     def odom_callback(self, msg: Odometry):
         """Track position for start/finish detection with hysteresis"""
