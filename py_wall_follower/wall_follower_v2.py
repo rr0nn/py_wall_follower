@@ -5,7 +5,7 @@ from collections import deque
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, QoSHistoryPolicy, QoSReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos import QoSProfile, qos_profile_sensor_data
 
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
@@ -29,7 +29,7 @@ class Sector(IntEnum):
 
 
 class ExponentialFilter:
-    """Exponential moving average filter"""
+    """Exponential smoothing filter"""
     def __init__(self, alpha=0.3):
         self.alpha = alpha  # Smoothing factor (0-1, lower = more smoothing)
         self.value = None
@@ -46,7 +46,7 @@ class ExponentialFilter:
 
 
 class VelocityRamper:
-    """Smooth velocity ramping to avoid jerky motion"""
+    """Velocity ramping filter""" 
     def __init__(self, max_accel=0.5, max_angular_accel=1.5, dt=0.01):
         self.max_accel = max_accel  # m/s²
         self.max_angular_accel = max_angular_accel  # rad/s²
@@ -55,7 +55,6 @@ class VelocityRamper:
         self.current_w = 0.0
     
     def ramp(self, target_v, target_w):
-        """Apply acceleration limits to reach target velocities"""
         # Linear velocity ramping
         v_diff = target_v - self.current_v
         max_v_change = self.max_accel * self.dt
@@ -94,10 +93,15 @@ class WallFollower(Node):
             ('kp_linear',        1.0),       # P gain for linear speed reduction near obstacles
             
             # Obstacle handling
-            ('slowdown_dist',    0.50),      # for proportional slowing
+            ('slowdown_dist',    0.50),      # for proportional linear velocity
+
             ('front_block',      0.40),      # block detection
-            ('no_wall',          0.50),      # no wall for u-turn
+            ('block_w',          0.50),      # block w
             ('corner_threshold', 0.35),      # for preparing a corner
+
+            ('no_wall',          0.50),      # no wall for u-turn
+            ('u_turn_v',         0.19),      # u-turn velocity
+            ('u_turn_w',         0.55),      # u-turn w
             
             # Scan processing
             ('sector_width',     30),        # sector width, can change to smaller if do not want full 30 degree range
@@ -141,7 +145,7 @@ class WallFollower(Node):
         self._start_y = 0.0
         self.near_start = False
         
-        # State tracking for smoother transitions
+        # State of controller
         self.last_state = "INIT"
 
         # ------------------------------
@@ -208,7 +212,7 @@ class WallFollower(Node):
             
             if 0 <= angle_deg < len(msg.ranges): # make sure it is within range of < 360
                 r = msg.ranges[angle_deg]
-                if r > 0:
+                if r > 0: # make sure sensor returning valid value
                     min_dist = min(min_dist, r)
         
         return min_dist
@@ -228,6 +232,7 @@ class WallFollower(Node):
 
         dist = math.hypot(x - self._start_x, y - self._start_y)
         
+        # DEBUG
         if self.p('debug_output'):
             self.get_logger().info(
                 f'[ODOM] Dist from start: {dist:.3f}m | State: {self.last_state}',
@@ -254,8 +259,11 @@ class WallFollower(Node):
         robot_radius = self.p('robot_radius')
         slowdown_dist = self.p('slowdown_dist')
         front_block = self.p('front_block')
+        block_w = self.p('block_w')
         no_wall = self.p('no_wall')
         corner_threshold = self.p('corner_threshold')
+        u_turn_v = self.p('u_turn_v')
+        u_turn_w = self.p('u_turn_w')
         
         v_max = self.p('v_max')
         w_max = self.p('w_max')
@@ -282,7 +290,7 @@ class WallFollower(Node):
         S = Sector
         follow_left = str(self.p('follow_side')).lower() == 'left' # 'left' or 'right'
         
-        # Wall distance estimation - using min() for forward-looking detection
+        # Wall distance estimations
         if follow_left:
             side_direct = self.sector_distances[S.LEFT]
             opp_direct = self.sector_distances[S.RIGHT]
@@ -298,7 +306,7 @@ class WallFollower(Node):
             front_side = self.sector_distances[S.FRONT_RIGHT]
             front_opp = self.sector_distances[S.FRONT_LEFT]
 
-        # Correct for robot radius
+        # Correction for robot radius
         side_direct -= robot_radius
         opp_direct -= robot_radius
         side_front -= robot_radius
@@ -330,31 +338,31 @@ class WallFollower(Node):
             target_v = round(v_max * min(1, max(0, (front - target + tolerance) /slowdown_dist) * kp_linear), 2) # Front closer to wall, slower the robot
 
         # Turning Control
-        # 1a) Keep Turning Until Not Blocked
+        # 1a) If in BLOCKED state -> using front and front_side for detction to exit state
         if self.last_state == "BLOCKED" and min(front, front_side) < front_block:
             #self.get_logger().info('1a', throttle_duration_sec=1)
             state = "BLOCKED"
             target_v = 0.0
-            target_w = -turn_sign * 0.5 # * min(1, 1 - (front / front_block))
+            target_w = -turn_sign * block_w
 
         # 1b) Front blocked -> turning away
         elif front < front_block and max(side_direct, front_side) < front_block + 0.3:  # side needs to be blocked too
             #self.get_logger().info('1b', throttle_duration_sec=1)
             state = "BLOCKED"
             target_v = 0.0
-            target_w = -turn_sign * 0.5 # * min(1, 1 - (front / front_block))
+            target_w = -turn_sign * block_w
         
-        # 2a) No wall on the side -> large w_max for u-turn
-        elif self.last_state == "NO_WALL" and front_side > no_wall: # Using front_side
+        # 2a) If in NO_WALL state -> using front_side for detction to exit state
+        elif self.last_state == "NO_WALL" and front_side > no_wall: 
             state = "NO_WALL"
-            target_v = 0.19
-            target_w = turn_sign * 0.55
+            target_v = u_turn_v
+            target_w = turn_sign * u_turn_w
 
         # 2b) No wall on the side -> large w_max for u-turn
         elif side_front > no_wall:
             state = "NO_WALL"
-            target_v = 0.19
-            target_w = turn_sign * 0.55
+            target_v = u_turn_v
+            target_w = turn_sign * u_turn_w
 
         # 3) Too close to wall -> proportional correction away
         elif side_est < target - tolerance:
@@ -376,7 +384,7 @@ class WallFollower(Node):
             state = "CORNER_AHEAD"
             target_w = -turn_sign * w_max * 0.5
         
-        # 7) Cruise - safe distance from wall
+        # 7) Cruise if safe distance from wall
         else:
             state = "CRUISE"
             target_w = turn_sign * 0.02 # rad/s Very small correction to stay centered
@@ -394,12 +402,12 @@ class WallFollower(Node):
         self.publish_cmd(target_v, target_w)
     
     def publish_cmd(self, linear: float, angular: float, force=False):
-        """Publish velocity command with ramping for smooth acceleration"""
+        """Publish velocity command"""
         if force:
             # Immediate stop
             v, w = linear, angular
         else:
-            # Apply ramping
+            # Apply ramping filter
             v, w = self.ramper.ramp(linear, angular)
         
         cmd = Twist()
@@ -418,7 +426,7 @@ def main():
         pass
     finally:
         try:
-            node.publish_cmd(0.0, 0.0, force=True)
+            node.publish_cmd(0.0, 0.0, force=True) # Try to stop robot on exit
         except Exception:
             pass
         
