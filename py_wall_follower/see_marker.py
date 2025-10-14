@@ -26,7 +26,7 @@ from .landmark import marker_type
 field_of_view_h = 62.2
 field_of_view_v = 48.8
 focal_length = 3.04
-pixel_size = 0.19
+pixel_size = 0.1037 # Orignal 0.19
 real_object_size = 100.0
 distance_numerator = real_object_size * focal_length * pixel_size
 
