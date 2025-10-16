@@ -374,10 +374,7 @@ class WallFollower(Node):
         elif side_est > target + tolerance:
             state = "TOO_FAR"
             error = side_est - target
-            if self.last_state == "NO_WALL":
-                target_w = turn_sign * w_max
-            else:
-                target_w = turn_sign * min(w_max, kp_angular * error)
+            target_w = turn_sign * min(w_max, kp_angular * error)
 
         # 5) Corner detected ahead  -> prepare to turn
         elif max(front_side, front) < corner_threshold:
