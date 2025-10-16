@@ -107,12 +107,12 @@ class WallFollower(Node):
             ('sector_width',     30),        # sector width, can change to smaller if do not want full 30 degree range
             
             # Filtering
-            ('sensor_filter_alpha', 0.8),    # EMA smoothing (higher = less smoothing)
+            ('sensor_filter_alpha', 0.8),    # alpha for smoothing (higher = less smoothing)
             ('max_accel',           0.5),    # m/s² linear acceleration limit
             ('max_angular_accel',   1.0),    # rad/s² angular acceleration limit
             
             # Control loop
-            ('timer_dt',         0.01),      # 100Hz
+            ('timer_dt',         0.01),      # 10ms, 100Hz
             
             # Debug
             ('debug_output',     True),
