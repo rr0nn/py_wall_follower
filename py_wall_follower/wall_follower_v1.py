@@ -36,8 +36,8 @@ class WallFollower(Node):
         # ------------------------------
         self.declare_parameters('', [
             # Wall following
-            ('target_wall_dist', 0.40),
-            ('wall_tolerance',   0.13),     # wider band → fewer micro-corrections
+            ('target_wall_dist', 0.50),
+            ('wall_tolerance',   0.10),     # wider band → fewer micro-corrections
             ('follow_side',      'left'),
 
             # Speeds
@@ -55,7 +55,7 @@ class WallFollower(Node):
             ('corner_threshold', 0.50),     # less overreaction to diagonals
 
             # Sector processing
-            ('sector_width',     10),       # narrower sector → less jitter
+            ('sector_width',     15),
             ('min_valid_range',  0.05),
             ('max_valid_range',  4.0),
 
@@ -137,6 +137,8 @@ class WallFollower(Node):
                 if r > 0: # make sure sensor returning valid value
                     min_dist = min(min_dist, r)
                 min_dist = min(min_dist, r)
+            
+        return min_dist
 
     def odom_callback(self, msg: Odometry):
         """Track position for start/finish detection with hysteresis"""
