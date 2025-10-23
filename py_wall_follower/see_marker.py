@@ -26,7 +26,7 @@ from .landmark import marker_type
 field_of_view_h = 62.2
 field_of_view_v = 48.8
 focal_length = 3.04
-pixel_size = 0.1037 # Orignal 0.19
+pixel_size = 0.12 # Orignal 0.19
 real_object_size = 100.0
 distance_numerator = real_object_size * focal_length * pixel_size
 
@@ -70,6 +70,11 @@ class SeeMarker(Node):
 		# Convert ROS Image message to OpenCV image
 		current_frame = self.br.compressed_imgmsg_to_cv2(data, 'bgra8')
 
+		height, width = current_frame.shape[:2] 
+
+		# Print the resolution
+		# print(f"Image Resolution: {width}x{height}")
+
 		# The following code is a simple example of colour segmentation
 		# and connected components analysis
 		
@@ -90,6 +95,7 @@ class SeeMarker(Node):
 					# Check to see if the blobs are verically aligned
 					if abs(pink_x - c_x) > pink_h: # threshold = width of pink blob
 #						print(f'pink_x = {pink_x}, pink_y = {pink_y}, h = {pink_h}')
+#						self.get_logger().info(f'pink_x = {pink_x}, pink_y = {pink_y}, h = {pink_h}', throttle_duration_sec=1)
 						continue
 
 					marker_at = PointStamped()
@@ -115,7 +121,7 @@ class SeeMarker(Node):
 
 #					print(f'Camera coordinates: {x}, {y}')
 					self.point_publisher.publish(marker_at)
-					self.get_logger().info('Published Point: x=%f, y=%f, z=%f' % (marker_at.point.x, marker_at.point.y, marker_at.point.z))
+					self.get_logger().info('Published Point: x=%f, y=%f, z=%f' % (marker_at.point.x, marker_at.point.y, marker_at.point.z), throttle_duration_sec=1)
 
 
 		# Display camera image
@@ -124,10 +130,10 @@ class SeeMarker(Node):
 
 
 colours = {
-	"pink":	 	((320 / 2, 255 * 0.6, 255 * 0.6), (355 / 2, 255, 255)),
-	"blue":		((185 / 2,255 * 0.6, 255 * 0.35), (211 / 2, 255, 255)),
-	"green":	((160 / 2, 255 * 0.4 ,255 * 0.2), (185 / 2, 255, 255)),
-	"yellow":	((32 / 2, 255 * 0.5 , 255 * 0.5), (53 / 2, 255, 255))
+	"pink":	 	((320 / 2, 255 * 0.4, 255 * 0.6), (358 / 2, 255, 255)),
+	"blue":		((192 / 2, 255 * 0.4, 255 * 0.35), (211 / 2, 255, 255)),
+	"green":	((140 / 2, 255 * 0.3 ,255 * 0.2), (190 / 2, 255, 255)),
+	"yellow":	((32 / 2, 255 * 0.3 , 255 * 0.5), (53 / 2, 255, 255))
 }
 
 
@@ -147,7 +153,8 @@ def segment(current_frame, hsv_frame, colour):
 	blobs = cv2.connectedComponentsWithStats(mask, 4, cv2.CV_32S)
 
 	# Display masked image
-	cv2.imshow("result", result)
+	if colour == "pink":
+		cv2.imshow("masked", result)
  
 	# Print statistics for each blob (connected component)
 	return get_stats(blobs, colour)
@@ -166,7 +173,7 @@ def get_stats(blobs, colour):
 
 	largest = 0
 	rval = None
-	centre = 320 # 640/2
+	centre = 160 / 2 # 640/2
 
 	for i in range(1, numLabels):
 		x = stats[i, cv2.CC_STAT_LEFT]
@@ -175,7 +182,7 @@ def get_stats(blobs, colour):
 		h = stats[i, cv2.CC_STAT_HEIGHT]
 		area = stats[i, cv2.CC_STAT_AREA]
 		(cx, cy) = centroids[i]
-		# print(colour, x, y, w, h, area, cx, cy)
+		# print(colour, x, y, w, h, area, cx, cy)	
 
 		if area > largest:
 			largest = area
@@ -193,7 +200,7 @@ def get_stats(blobs, colour):
 					cx += h-w
 				else:
 					cx -= h-w
-			angle = (centre - cx) * field_of_view_h / 640
+			angle = (centre - cx) * field_of_view_h / 160 # Original 640
 			if angle < 0:
 				angle += 360
 			rval = (cx, cy, h, distance, angle)
