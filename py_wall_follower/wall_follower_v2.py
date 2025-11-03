@@ -95,13 +95,13 @@ class WallFollower(Node):
             # Obstacle handling
             ('slowdown_dist',    0.50),      # for proportional linear velocity
 
-            ('front_block',      0.40),      # block detection
+            ('front_block',      0.35),      # block detection
             ('block_w',          0.50),      # block w
             ('corner_threshold', 0.35),      # for preparing a corner
 
             ('no_wall',          0.50),      # no wall for u-turn
-            ('u_turn_v',         0.19),      # u-turn velocity
-            ('u_turn_w',         0.55),      # u-turn w
+            ('u_turn_v',         0.15),      # u-turn velocity
+            ('u_turn_w',         0.45),      # u-turn w
             
             # Scan processing
             ('sector_width',     30),        # sector width, can change to smaller if do not want full 30 degree range
