@@ -16,7 +16,7 @@ import cv2 # OpenCV library
 from cv_bridge import CvBridge # Package to convert between ROS and OpenCV Images
 import math
 
-from sensor_msgs.msg import CompressedImage # Image is the message type
+from sensor_msgs.msg import Image, CompressedImage # Image is the message type
 from sensor_msgs.msg import LaserScan # Laser scan message type
 from sensor_msgs.msg import CameraInfo # Need to know camera frame
 from geometry_msgs.msg import Point, PointStamped
@@ -26,9 +26,12 @@ from .landmark import marker_type
 field_of_view_h = 62.2
 field_of_view_v = 48.8
 focal_length = 3.04
-pixel_size = 0.12 # Orignal 0.19
+pixel_size = 0.1 # Orignal 0.19
 real_object_size = 100.0
 distance_numerator = real_object_size * focal_length * pixel_size
+image_width = 160 # 160 for compressed, 640 for simulation
+
+see_mask_color = "pink"
 
 class SeeMarker(Node):
 	"""
@@ -49,7 +52,7 @@ class SeeMarker(Node):
 		# from the video_frames topic. The queue size is 10 messages.
 		self.subscription = self.create_subscription(
 			CompressedImage,
-			'/camera/image_raw/compressed', 	# Change to "compressed" for real robot
+			'/camera/image_raw/compressed', 	# Change to "/camera/image_raw/compressed" for real robot
 			self.listener_callback, 
 			10)
 		self.subscription # prevent unused variable warning
@@ -68,7 +71,7 @@ class SeeMarker(Node):
 		# self.get_logger().info('Receiving video frame')
  
 		# Convert ROS Image message to OpenCV image
-		current_frame = self.br.compressed_imgmsg_to_cv2(data, 'bgra8')
+		current_frame = self.br.compressed_imgmsg_to_cv2(data, 'bgra8')  #self.br.imgmsg_to_cv2(data, 'bgra8')
 
 		height, width = current_frame.shape[:2] 
 
@@ -84,18 +87,22 @@ class SeeMarker(Node):
 		# Find pink blob
 		pink_blob = segment(current_frame, hsv_frame, "pink")
 		if pink_blob:
-			(pink_x, pink_y, pink_h, p_d, p_a) = pink_blob
+			(pink_x, pink_y, pink_h, p_d, p_a, p_w, p_h) = pink_blob
 
 			# try to find the other colored blobs
 			for c in ["blue", "green", "yellow"]:
 				blob = segment(current_frame, hsv_frame, c)
 				if blob:
-					(c_x, c_y, c_h, c_d, c_a) = blob
+					(c_x, c_y, c_h, c_d, c_a, c_w, c_h) = blob
 
 					# Check to see if the blobs are verically aligned
 					if abs(pink_x - c_x) > pink_h: # threshold = width of pink blob
 #						print(f'pink_x = {pink_x}, pink_y = {pink_y}, h = {pink_h}')
 #						self.get_logger().info(f'pink_x = {pink_x}, pink_y = {pink_y}, h = {pink_h}', throttle_duration_sec=1)
+						continue
+
+					# Error check
+					if abs(p_w - c_w) > 10:
 						continue
 
 					marker_at = PointStamped()
@@ -110,11 +117,11 @@ class SeeMarker(Node):
 					if c_y < pink_y:	# +y is down
 #						print(c, "/ pink", f'{c_d:.2f}, {c_a:.2f}')
 						marker_at.point.z = float(marker_type.index(c + '/pink'))
+						x, y = polar_to_cartesian(c_d, c_a)
 					else:
 #						print("pink / ", c, f'{p_d:.2f}, {p_a:.2f}')
 						marker_at.point.z = float(marker_type.index('pink/' + c))
-					
-					x, y = polar_to_cartesian(c_d, c_a)
+						x, y = polar_to_cartesian(p_d, p_a)
 
 					marker_at.point.x = x
 					marker_at.point.y = y
@@ -122,6 +129,8 @@ class SeeMarker(Node):
 #					print(f'Camera coordinates: {x}, {y}')
 					self.point_publisher.publish(marker_at)
 					self.get_logger().info('Published Point: x=%f, y=%f, z=%f' % (marker_at.point.x, marker_at.point.y, marker_at.point.z), throttle_duration_sec=1)
+
+					break
 
 
 		# Display camera image
@@ -133,7 +142,7 @@ colours = {
 	"pink":	 	((320 / 2, 255 * 0.4, 255 * 0.6), (358 / 2, 255, 255)),
 	"blue":		((192 / 2, 255 * 0.4, 255 * 0.35), (211 / 2, 255, 255)),
 	"green":	((140 / 2, 255 * 0.3 ,255 * 0.2), (190 / 2, 255, 255)),
-	"yellow":	((32 / 2, 255 * 0.3 , 255 * 0.5), (53 / 2, 255, 255))
+	"yellow":	((30 / 2, 255 * 0.3 , 255 * 0.5), (60 / 2, 255, 255))
 }
 
 
@@ -153,7 +162,7 @@ def segment(current_frame, hsv_frame, colour):
 	blobs = cv2.connectedComponentsWithStats(mask, 4, cv2.CV_32S)
 
 	# Display masked image
-	if colour == "pink":
+	if colour == see_mask_color:
 		cv2.imshow("masked", result)
  
 	# Print statistics for each blob (connected component)
@@ -173,7 +182,7 @@ def get_stats(blobs, colour):
 
 	largest = 0
 	rval = None
-	centre = 160 / 2 # 640/2
+	centre = image_width/2
 
 	for i in range(1, numLabels):
 		x = stats[i, cv2.CC_STAT_LEFT]
@@ -200,10 +209,10 @@ def get_stats(blobs, colour):
 					cx += h-w
 				else:
 					cx -= h-w
-			angle = (centre - cx) * field_of_view_h / 160 # Original 640
+			angle = (centre - cx) * field_of_view_h / image_width # Original 640
 			if angle < 0:
 				angle += 360
-			rval = (cx, cy, h, distance, angle)
+			rval = (cx, cy, h, distance, angle, w, h)
 
 	return rval
 
