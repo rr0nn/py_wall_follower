@@ -11,6 +11,8 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 
+import subprocess
+
 
 class Sector(IntEnum):
     """12 sectors around the robot at 30° intervals"""
@@ -115,7 +117,7 @@ class WallFollower(Node):
             ('timer_dt',         0.01),      # 10ms, 100Hz
             
             # Debug
-            ('debug_output',     True),
+            ('debug_output',     False),
             
             # Start/finish detection
             ('start_enter_r',    0.40),
@@ -245,8 +247,12 @@ class WallFollower(Node):
                 self.get_logger().info(f'[ODOM] ✓ Left start area (dist: {dist:.3f}m)')
         else:
             if dist < self.p('start_enter_r'):
-                self.get_logger().info(f'[ODOM] ✓ COMPLETED - Returned to start')
+                self.get_logger().info('[ODOM] ✓ COMPLETED - Returned to start')
                 self.near_start = True
+                
+                # Save Map
+                self.get_logger().info('[ODOM] ✓ SAVING MAP')
+                subprocess.run(['ros2', 'run', 'nav2_map_server', 'map_saver_cli', '-f', 'map'], capture_output=False)
 
     # ==============================
     # CONTROL LOGIC
