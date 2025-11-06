@@ -26,10 +26,10 @@ from .landmark import marker_type
 field_of_view_h = 62.2
 field_of_view_v = 48.8
 focal_length = 3.04
-pixel_size = 0.1 # Orignal 0.19
+pixel_size = 0.19 # Simulation/Original 0.19, 0.1 for real
 real_object_size = 100.0
 distance_numerator = real_object_size * focal_length * pixel_size
-image_width = 160 # 160 for compressed, 640 for simulation
+image_width = 640 # 160 for compressed, 640 for simulation
 
 see_mask_color = "pink"
 
@@ -51,8 +51,8 @@ class SeeMarker(Node):
 		# Create the subscriber. This subscriber will receive an Image
 		# from the video_frames topic. The queue size is 10 messages.
 		self.subscription = self.create_subscription(
-			CompressedImage,
-			'/camera/image_raw/compressed', 	# Change to "/camera/image_raw/compressed" for real robot
+			Image,
+			'/camera/image_raw', 	# Change to "/camera/image_raw/compressed" for real robot
 			self.listener_callback, 
 			10)
 		self.subscription # prevent unused variable warning
@@ -71,7 +71,7 @@ class SeeMarker(Node):
 		# self.get_logger().info('Receiving video frame')
  
 		# Convert ROS Image message to OpenCV image
-		current_frame = self.br.compressed_imgmsg_to_cv2(data, 'bgra8')  #self.br.imgmsg_to_cv2(data, 'bgra8')
+		current_frame = self.br.imgmsg_to_cv2(data, 'bgra8') # self.br.compressed_imgmsg_to_cv2(data, 'bgra8')
 
 		height, width = current_frame.shape[:2] 
 
@@ -126,9 +126,9 @@ class SeeMarker(Node):
 					marker_at.point.x = x
 					marker_at.point.y = y
 
-#					print(f'Camera coordinates: {x}, {y}')
+#					print(f'Camera coordinates: {x}, {y}') 
 					self.point_publisher.publish(marker_at)
-					self.get_logger().info('Published Point: x=%f, y=%f, z=%f' % (marker_at.point.x, marker_at.point.y, marker_at.point.z), throttle_duration_sec=1)
+					self.get_logger().info(f"Published Point: x={marker_at.point.x}, y={marker_at.point.y}, type={marker_type[int(marker_at.point.z)]}", throttle_duration_sec=1)
 
 					break
 
@@ -138,11 +138,18 @@ class SeeMarker(Node):
 		cv2.waitKey(1)
 
 
+# colours = {
+# 	"pink":	 	((320 / 2, 255 * 0.4, 255 * 0.6), (358 / 2, 255, 255)),
+# 	"blue":		((192 / 2, 255 * 0.4, 255 * 0.35), (211 / 2, 255, 255)),
+# 	"green":	((140 / 2, 255 * 0.3 ,255 * 0.2), (190 / 2, 255, 255)),
+# 	"yellow":	((30 / 2, 255 * 0.3 , 255 * 0.5), (60 / 2, 255, 255))
+# }
+
 colours = {
-	"pink":	 	((320 / 2, 255 * 0.4, 255 * 0.6), (358 / 2, 255, 255)),
-	"blue":		((192 / 2, 255 * 0.4, 255 * 0.35), (211 / 2, 255, 255)),
-	"green":	((140 / 2, 255 * 0.3 ,255 * 0.2), (190 / 2, 255, 255)),
-	"yellow":	((30 / 2, 255 * 0.3 , 255 * 0.5), (60 / 2, 255, 255))
+	"pink":	 	((140,0,0), (170, 255, 255)),
+	"blue":		((100,0,0), (130, 255, 255)),
+	"green":	((40,0,0), (80, 255, 255)),
+	"yellow":	((25,0,0), (32, 255, 255))
 }
 
 
