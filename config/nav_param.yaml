@@ -148,7 +148,7 @@ controller_server:
       vx_samples: 20
       vy_samples: 0
       vtheta_samples: 40
-      sim_time: 2.0
+      sim_time: 3.0
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
@@ -156,13 +156,14 @@ controller_server:
       trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: True
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "GoalDist", "PreferForward"] # 
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "PreferForward", "GoalDist"] # 
       
       # Scores a trajectory based on where the path passes over the costmap.
       BaseObstacle.scale: 0.02
 
       # Scores trajectories that move the robot forwards more highly.
       PreferForward.scale: 10.0
+      PreferForward.theta_scale: 0.2
 
       # Scores a trajectory based on how well it is aligned to the path provided by the global planner.
       PathAlign.scale: 32.0
@@ -176,7 +177,7 @@ controller_server:
       # GoalAlign.forward_point_distance: 0.5
 
       # Scores a trajectory based on how close the trajectory gets the robot to the goal pose.
-      GoalDist.scale: 24.0
+      GoalDist.scale: 5.0
       
       # Only allows the robot to rotate to the goal orientation when it is sufficiently close to the goal location.
       RotateToGoal.scale: 32.0
