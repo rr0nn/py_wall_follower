@@ -1,23 +1,35 @@
 from setuptools import find_packages, setup
-import os, glob
+from pathlib import Path
+from glob import glob
 
 package_name = 'py_wall_follower'
+
+# Use Pathlib for directory construction
+package_share_dir = Path('share') / package_name
 
 setup(
     name=package_name,
     version='0.0.0',
-    packages=find_packages(include=['py_wall_follower', 'py_wall_follower.*']),
+    packages=find_packages(include=[package_name, f'{package_name}.*']),
     data_files=[
-        ('share/ament_index/resource_index/packages',
-            ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name, 'launch'), glob.glob('launch/*.py')),
+        # ROS 2 package index entry
+        (str(Path('share') / 'ament_index' / 'resource_index' / 'packages'),
+         [f'resource/{package_name}']),
+
+        # Package manifest
+        (str(Path('share') / package_name), ['package.xml']),
+
+        # Launch files
+        (str(package_share_dir / 'launch'), glob('launch/*.py')),
+
+        # Parameter and map directories
+        (str(package_share_dir / 'param'), glob('param/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='ubuntu',
     maintainer_email='zhanggaorong6@gmail.com',
-    description='TODO: Package description',
+    description='Wall following and navigation package for TurtleBot3',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
