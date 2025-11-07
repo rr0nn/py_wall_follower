@@ -124,8 +124,8 @@ controller_server:
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.25
+      xy_goal_tolerance: 0.45
+      yaw_goal_tolerance: 6.28 # 360 degree, do not care about angle relative to goal pose.
 
     # DWB parameters
     FollowPath:
@@ -133,11 +133,11 @@ controller_server:
       debug_trajectory_details: True
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.22
+      max_vel_x: 0.24
       max_vel_y: 0.0
       max_vel_theta: 1.0
       min_speed_xy: 0.0
-      max_speed_xy: 0.22
+      max_speed_xy: 0.24
       min_speed_theta: 0.0
       acc_lim_x: 2.5
       acc_lim_y: 0.0
@@ -152,11 +152,11 @@ controller_server:
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
-      xy_goal_tolerance: 0.2
+      xy_goal_tolerance: 0.45
       trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: True
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "PreferForward", "GoalDist"] # 
+      critics: ["Oscillation", "BaseObstacle", "PathAlign", "PathDist", "PreferForward", "GoalDist"] # 
       
       # Scores a trajectory based on where the path passes over the costmap.
       BaseObstacle.scale: 0.02
@@ -180,9 +180,9 @@ controller_server:
       GoalDist.scale: 5.0
       
       # Only allows the robot to rotate to the goal orientation when it is sufficiently close to the goal location.
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
+      # RotateToGoal.scale: 32.0
+      # RotateToGoal.slowing_factor: 5.0
+      # RotateToGoal.lookahead_time: -1.0
 
 controller_server_rclcpp_node:
   ros__parameters:
@@ -204,7 +204,7 @@ local_costmap:
       plugins: ["obstacle_layer", "voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.35
+        inflation_radius: 0.3
         cost_scaling_factor: 3.0
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -297,8 +297,8 @@ global_costmap:
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
         inflation_radius: 0.55
+        cost_scaling_factor: 3.0
       always_send_full_costmap: True
   global_costmap_client:
     ros__parameters:
