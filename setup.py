@@ -23,7 +23,7 @@ setup(
         (str(package_share_dir / 'launch'), glob('launch/*.py')),
 
         # Parameter and map directories
-        (str(package_share_dir / 'param'), glob('param/*.yaml')),
+        (str(package_share_dir / 'config'), glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

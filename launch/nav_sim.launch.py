@@ -13,9 +13,6 @@ def generate_launch_description():
     pkg_tb3_gazebo = Path(FindPackageShare('turtlebot3_gazebo').find('turtlebot3_gazebo'))
     pkg_tb3_nav2 = Path(FindPackageShare('turtlebot3_navigation2').find('turtlebot3_navigation2'))
 
-    default_map = 'map.yaml'
-    default_params = pkg_py_wall_follower / 'param' / 'nav_param.yaml'
-
     # ------------------------------------------------------------------
     # Include Gazebo world with TurtleBot3
     # ------------------------------------------------------------------
@@ -26,12 +23,16 @@ def generate_launch_description():
     # ------------------------------------------------------------------
     # Include Nav2 (navigation2 + RViz)
     # ------------------------------------------------------------------
+    default_map = 'map.yaml'
+    default_waypoints = 'landmarks.csv'
+    default_params = pkg_py_wall_follower / 'config' / 'nav_param.yaml'
     nav2_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str(pkg_tb3_nav2 / 'launch' / 'navigation2.launch.py')),
         launch_arguments={
             'use_sim_time': 'True',
             'map': str(default_map),
-            'params_file': str(default_params)
+            # 'way_waypoints_file': str(default_waypoints),
+            'params_file': str(default_params),
         }.items(),
     )
 

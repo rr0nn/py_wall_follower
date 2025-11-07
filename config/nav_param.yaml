@@ -38,6 +38,14 @@ amcl:
     z_rand: 0.5
     z_short: 0.05
 
+    # 2D Pose estimate at origin
+    set_initial_pose: True
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
+
 amcl_map_client:
   ros__parameters:
     use_sim_time: False
@@ -131,8 +139,6 @@ controller_server:
       min_speed_xy: 0.0
       max_speed_xy: 0.22
       min_speed_theta: 0.0
-      # Add high threshold velocity for turtlebot 3 issue.
-      # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
       acc_lim_x: 2.5
       acc_lim_y: 0.0
       acc_lim_theta: 3.2
@@ -146,18 +152,33 @@ controller_server:
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
-      xy_goal_tolerance: 0.05
+      xy_goal_tolerance: 0.2
       trans_stopped_velocity: 0.25
       short_circuit_trajectory_evaluation: True
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "GoalDist", "PreferForward"] # 
+      
+      # Scores a trajectory based on where the path passes over the costmap.
       BaseObstacle.scale: 0.02
+
+      # Scores trajectories that move the robot forwards more highly.
+      PreferForward.scale: 10.0
+
+      # Scores a trajectory based on how well it is aligned to the path provided by the global planner.
       PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
+      PathAlign.forward_point_distance: 0.2
+
+      # Scores a trajectory based on how well it is aligned to the path provided by the global planner.
       PathDist.scale: 32.0
+
+      # Scores a trajectory based on how well aligned the trajectory is with the goal pose.
+      # GoalAlign.scale: 24.0
+      # GoalAlign.forward_point_distance: 0.5
+
+      # Scores a trajectory based on how close the trajectory gets the robot to the goal pose.
       GoalDist.scale: 24.0
+      
+      # Only allows the robot to rotate to the goal orientation when it is sufficiently close to the goal location.
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
@@ -182,7 +203,7 @@ local_costmap:
       plugins: ["obstacle_layer", "voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 1.0
+        inflation_radius: 0.35
         cost_scaling_factor: 3.0
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
