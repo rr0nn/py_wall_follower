@@ -28,6 +28,9 @@ class WaypointNavigator(Node):
 
         self.csv_path = Path(csv_path_param).expanduser().resolve()
         self.get_logger().info(f"Using waypoint file: {self.csv_path}")
+        
+        # --- Other parameters ---
+        self.declare_parameter('wait_time', 1.0)
 
         # --- Create NavigateToPose action client ---
         self._action_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
@@ -129,9 +132,10 @@ class WaypointNavigator(Node):
             else:
                 self.get_logger().warn(f"⚠️ Could not reach waypoint {i} (Color: {marker_color}), skipping...")
                 
-            # Wait 1 second before moving to next waypoint.
-            self.get_logger().info("Waiting 1 second before next waypoint...")
-            time.sleep(1.0)
+            # Wait before moving to next waypoint.
+            wait_time = self.get_parameter('wait_time').get_parameter_value().double_value
+            self.get_logger().info(f"Waiting {wait_time:.1f} second before next waypoint...")
+            time.sleep(wait_time)
 
         self.get_logger().info("🎯 All waypoints processed.")
 
