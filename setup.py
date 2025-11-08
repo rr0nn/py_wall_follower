@@ -3,8 +3,6 @@ from pathlib import Path
 from glob import glob
 
 package_name = 'py_wall_follower'
-
-# Use Pathlib for directory construction
 package_share_dir = Path('share') / package_name
 
 setup(
@@ -38,6 +36,7 @@ setup(
             'wf2 = py_wall_follower.wall_follower_v2:main',
             'see_marker = py_wall_follower.see_marker:main',
             'point_transformer = py_wall_follower.point_transformer:main',
+            'wn = py_wall_follower.waypoint_navigator:main',
         ],
     },
 )
