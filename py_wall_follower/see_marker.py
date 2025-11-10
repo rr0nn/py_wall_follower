@@ -31,7 +31,7 @@ real_object_size = 100.0
 distance_numerator = real_object_size * focal_length * pixel_size
 image_width = 160 # 160 for compressed, 640 for simulation
 
-see_mask_color = "green"
+see_mask_color = "blue"
 
 class SeeMarker(Node):
 	"""
@@ -118,10 +118,18 @@ class SeeMarker(Node):
 #						print(c, "/ pink", f'{c_d:.2f}, {c_a:.2f}')
 						marker_at.point.z = float(marker_type.index(c + '/pink'))
 						x, y = polar_to_cartesian(c_d, c_a)
+
+						# ratio check
+						if c_h/c_w < 0.8:
+							continue
 					else:
 #						print("pink / ", c, f'{p_d:.2f}, {p_a:.2f}')
 						marker_at.point.z = float(marker_type.index('pink/' + c))
 						x, y = polar_to_cartesian(p_d, p_a)
+
+						# ratio check
+						if p_h/p_w < 0.8:
+							continue
 
 					marker_at.point.x = x
 					marker_at.point.y = y
@@ -139,7 +147,7 @@ class SeeMarker(Node):
 
 
 colours = {
-	"pink":	 	((320 / 2, 255 * 0.4, 255 * 0.6), (358 / 2, 255, 255)),
+	"pink":	 	((300 / 2, 255 * 0.3, 255 * 0.3), (340 / 2, 255, 255)),
 	"blue":		((192 / 2, 255 * 0.4, 255 * 0.35), (211 / 2, 255, 255)),
 	"green":	((140 / 2, 255 * 0.3 ,255 * 0.2), (190 / 2, 255, 255)),
 	"yellow":	((30 / 2, 255 * 0.3 , 255 * 0.5), (60 / 2, 255, 255))
@@ -205,11 +213,11 @@ def get_stats(blobs, colour):
 			"""
 			aspect_ratio = h/w
 			if aspect_ratio < 0.8: # correct for case where blob is at the edge (width is not fully captured)
-				# if cx < centre:
-				# 	cx += h-w
-				# else:
-				# 	cx -= h-w
-				continue
+				if cx < centre:
+					cx += h-w
+				else:
+					cx -= h-w
+			
 			angle = (centre - cx) * field_of_view_h / image_width # Original 640
 			if angle < 0:
 				angle += 360
