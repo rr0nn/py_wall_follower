@@ -139,6 +139,13 @@ class WaypointNavigator(Node):
 
         self.get_logger().info("🎯 All waypoints processed.")
 
+        # Go back to the start
+        status = self._send_goal(0.0, 0.0)
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().info(f"✅ Back to origin.")
+        else:
+            self.get_logger().warn(f"⚠️ Could not reach origin.")
+
 
 def main():
     rclpy.init()
