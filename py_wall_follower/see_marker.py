@@ -31,7 +31,7 @@ real_object_size = 100.0
 distance_numerator = real_object_size * focal_length * pixel_size
 image_width = 160 # 160 for compressed, 640 for simulation
 
-see_mask_color = "pink"
+see_mask_color = "green"
 
 class SeeMarker(Node):
 	"""
@@ -205,10 +205,11 @@ def get_stats(blobs, colour):
 			"""
 			aspect_ratio = h/w
 			if aspect_ratio < 0.8: # correct for case where blob is at the edge (width is not fully captured)
-				if cx < centre:
-					cx += h-w
-				else:
-					cx -= h-w
+				# if cx < centre:
+				# 	cx += h-w
+				# else:
+				# 	cx -= h-w
+				continue
 			angle = (centre - cx) * field_of_view_h / image_width # Original 640
 			if angle < 0:
 				angle += 360
