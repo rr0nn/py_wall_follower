@@ -103,7 +103,7 @@ class WallFollower(Node):
 
             ('no_wall',          0.50),      # no wall for u-turn
             ('u_turn_v',         0.15),      # u-turn velocity
-            ('u_turn_w',         0.45),      # u-turn w
+            ('u_turn_w',         0.40),      # u-turn w
             
             # Scan processing
             ('sector_width',     30),        # sector width, can change to smaller if do not want full 30 degree range
