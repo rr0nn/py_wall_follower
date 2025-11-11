@@ -122,6 +122,10 @@ class SeeMarker(Node):
 						# ratio check
 						if c_h/c_w < 0.8:
 							continue
+
+						# distance check
+						if c_d > 3.0:
+							continue
 					else:
 #						print("pink / ", c, f'{p_d:.2f}, {p_a:.2f}')
 						marker_at.point.z = float(marker_type.index('pink/' + c))
@@ -129,6 +133,9 @@ class SeeMarker(Node):
 
 						# ratio check
 						if p_h/p_w < 0.8:
+							continue
+						# distance check
+						if p_d > 3.0:
 							continue
 
 					marker_at.point.x = x
